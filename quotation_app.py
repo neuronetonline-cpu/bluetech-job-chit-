@@ -564,7 +564,26 @@ class App:
 
         # Only change the table body's height here. Avoid forcing an immediate
         # geometry recalculation during a Configure event.
-        self.table_body.configure(height=int(table_height))
+        new_height = int(table_height)
+        try:
+            current_height = int(self.table_body.winfo_height())
+        except Exception:
+            current_height = -1
+        # Do not repeatedly reconfigure the same geometry. This prevents the
+        # root Configure event from feeding back into itself.
+        if current_height != new_height:
+            self.table_body.configure(height=new_height)
+
+        # Make the inner table window at least as tall as the real product
+        # content so the canvas does not show a large empty area below rows.
+        try:
+            content_bbox = self.table.bbox("all")
+            content_height = int(content_bbox[3] - content_bbox[1]) if content_bbox else 0
+            window_height = max(new_height, content_height)
+            self.table_canvas.itemconfigure(self.table_window, height=window_height)
+        except Exception:
+            pass
+
         self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
 
         content_bbox = self.table_canvas.bbox("all")
