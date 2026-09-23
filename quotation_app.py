@@ -212,7 +212,11 @@ class App:
         self.editing_id = None
         setup_db(db)
         self.build()
-        # Recalculate the quotation-items height whenever the main window is resized.
+        # Resize tracking: only react when the actual root window dimensions change.
+        # Changes made inside the product table can also generate Configure events;
+        # those are ignored when the root size has not changed, preventing loops.
+        self._last_root_size = None
+        self._resize_after = None
         self.root.bind("<Configure>", self._on_root_resize, add="+")
         self.root.after(250, self.update_product_table_height)
 
@@ -246,10 +250,11 @@ class App:
 
         brand = tk.Frame(header, bg="#075EAA")
         brand.pack(side="left", padx=22, pady=10)
+        brand_font = ("Deadly Advance" if DEADLY_TK_AVAILABLE else "Segoe UI")
         tk.Label(brand, text="BLUETECH", bg="#075EAA", fg="#62D3FF",
-                 font=(("Deadly Advance" if DEADLY_TK_AVAILABLE else "Segoe UI"), 23, "bold")).pack(side="left")
+                 font=(brand_font, 23, "bold")).pack(side="left")
         tk.Label(brand, text=" COMPUTERS", bg="#075EAA", fg="white",
-                 font=(("Deadly Advance" if DEADLY_TK_AVAILABLE else "Segoe UI"), 23, "bold")).pack(side="left")
+                 font=(brand_font, 23, "bold")).pack(side="left")
         tk.Label(brand, text="COMPUTER SALES  |  REPAIRS  |  ACCESSORIES   •   YOUR TECH PARTNER",
                  bg="#075EAA", fg="#D9EEFF", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=2)
 
@@ -450,9 +455,24 @@ class App:
         self.recalc()
 
     def _on_root_resize(self, event=None):
-        # Debounce resize events. Do not call update_idletasks() from the
-        # resize callback because changing the table height can itself
-        # generate another Configure event and cause an endless event loop.
+        # Tk can emit Configure events when child widgets change size.
+        # Only schedule a table resize when the actual top-level window
+        # dimensions changed. This prevents the table resize from feeding
+        # back into another resize indefinitely.
+        if event is None:
+            try:
+                size = (self.root.winfo_width(), self.root.winfo_height())
+            except Exception:
+                return
+        else:
+            size = (int(getattr(event, "width", 0)), int(getattr(event, "height", 0)))
+
+        if size[0] <= 1 or size[1] <= 1:
+            return
+        if size == getattr(self, "_last_root_size", None):
+            return
+        self._last_root_size = size
+
         if getattr(self, "_resize_after", None):
             try:
                 self.root.after_cancel(self._resize_after)
