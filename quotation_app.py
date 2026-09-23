@@ -250,11 +250,10 @@ class App:
 
         brand = tk.Frame(header, bg="#075EAA")
         brand.pack(side="left", padx=22, pady=10)
-        brand_font = ("Deadly Advance" if DEADLY_TK_AVAILABLE else "Segoe UI")
         tk.Label(brand, text="BLUETECH", bg="#075EAA", fg="#62D3FF",
-                 font=(brand_font, 23, "bold")).pack(side="left")
+                 font=(("Deadly Advance" if DEADLY_TK_AVAILABLE else "Segoe UI"), 23, "bold")).pack(side="left")
         tk.Label(brand, text=" COMPUTERS", bg="#075EAA", fg="white",
-                 font=(brand_font, 23, "bold")).pack(side="left")
+                 font=(("Deadly Advance" if DEADLY_TK_AVAILABLE else "Segoe UI"), 23, "bold")).pack(side="left")
         tk.Label(brand, text="COMPUTER SALES  |  REPAIRS  |  ACCESSORIES   •   YOUR TECH PARTNER",
                  bg="#075EAA", fg="#D9EEFF", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=2)
 
@@ -455,12 +454,18 @@ class App:
         self.recalc()
 
     def _on_root_resize(self, event=None):
-        # This binding is on the top-level window only. Re-run the table sizing
-        # after a real window resize, but never resize the canvas content itself.
-        try:
-            size = (self.root.winfo_width(), self.root.winfo_height())
-        except Exception:
-            return
+        # Tk can emit Configure events when child widgets change size.
+        # Only schedule a table resize when the actual top-level window
+        # dimensions changed. This prevents the table resize from feeding
+        # back into another resize indefinitely.
+        if event is None:
+            try:
+                size = (self.root.winfo_width(), self.root.winfo_height())
+            except Exception:
+                return
+        else:
+            size = (int(getattr(event, "width", 0)), int(getattr(event, "height", 0)))
+
         if size[0] <= 1 or size[1] <= 1:
             return
         if size == getattr(self, "_last_root_size", None):
@@ -526,61 +531,58 @@ class App:
             pass
 
     def update_product_table_height(self):
-        """Set the quotation-items viewport height without changing canvas content height.
-
-        16 default rows are shown on a large/maximized window. On a smaller
-        window the viewport becomes shorter and the product-table scrollbar
-        handles the remaining rows. This intentionally avoids changing the
-        canvas window height, which can create a geometry/Configure feedback loop.
+        """Keep the standard 16 quotation rows visible on large windows.
+        On smaller windows, use the available height and the inner scrollbar.
+        Do not resize the canvas window to content height (prevents blank-area
+        feedback/resize loops).
         """
         if not hasattr(self, "table_body") or not hasattr(self, "rows"):
             return
-
         try:
             win_h = self.root.winfo_height()
         except Exception:
             win_h = 800
 
-        # Approximate row height from the actual entry widgets.
+        # Each row is about 28px including padding. The standard product list
+        # contains 16 rows, so reserve enough space for all 16 on large windows.
+        standard_rows = min(16, len(self.rows))
+        row_height = 28
         try:
-            heights = [max(w.winfo_reqheight() for w in row[4])
-                       for row in self.rows[:16] if row[4]]
-            row_h = max(heights) if heights else 28
+            if self.rows and self.rows[0][4]:
+                row_height = max(24, max(w.winfo_reqheight() for w in self.rows[0][4]) + 4)
         except Exception:
-            row_h = 28
-
-        standard_height = max(400, row_h * min(16, max(1, len(self.rows))) + 8)
+            pass
+        standard_height = max(450, standard_rows * row_height + 8)
 
         if win_h >= 760:
-            target = standard_height
+            new_height = standard_height
         else:
-            # Keep customer/header and calculation/actions usable on small windows.
-            target = max(220, min(standard_height, win_h - 430))
+            available = max(220, win_h - 420)
+            new_height = min(standard_height, available)
 
-        # If additional rows are added, keep a reasonable viewport and use the
-        # inner scrollbar instead of expanding the whole quotation page.
         if len(self.rows) > 16:
-            target = min(target, 500)
+            new_height = min(new_height, max(450, standard_height))
 
+        new_height = int(new_height)
         try:
-            current = int(self.table_body.winfo_height())
+            current_height = int(self.table_body.winfo_height())
         except Exception:
-            current = -1
+            current_height = -1
 
-        if current != int(target):
-            self.table_body.configure(height=int(target))
+        if current_height != new_height:
+            self.table_body.configure(height=new_height)
 
-        # Only update the scrollregion. Never set the canvas window height here.
+        # Keep the embedded frame width synced, but never force its height to
+        # the content height. This is the key to avoiding the resize loop.
         try:
             self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
         except Exception:
             pass
 
-        # Show the inner scrollbar only when content is taller than the viewport.
         try:
-            bbox = self.table_canvas.bbox("all")
-            content_h = (bbox[3] - bbox[1]) if bbox else 0
-            if content_h > int(target) + 2:
+            content_bbox = self.table.bbox("all")
+            content_height = (content_bbox[3] - content_bbox[1]) if content_bbox else 0
+            if content_height > new_height + 2:
                 if not self.table_scroll.winfo_ismapped():
                     self.table_scroll.pack(side="right", fill="y")
             else:
