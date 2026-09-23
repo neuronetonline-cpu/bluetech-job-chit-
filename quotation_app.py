@@ -370,6 +370,9 @@ class App:
         def on_table_configure(_event=None):
             self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
         def on_canvas_configure(event):
+            # Width follows the viewport. Height is deliberately left to the
+            # table frame's natural content height; changing it here can cause
+            # geometry feedback loops.
             self.table_canvas.itemconfigure(self.table_window, width=event.width)
         self.table.bind("<Configure>", on_table_configure)
         self.table_canvas.bind("<Configure>", on_canvas_configure)
@@ -448,6 +451,21 @@ class App:
         inv_btn.pack(side="right", padx=3)
 
         self.recalc()
+        # Let Tk finish the initial canvas geometry, then refresh the outer
+        # page scroll region once. This is not bound to Configure, so it cannot
+        # create a resize feedback loop.
+        self.root.after_idle(self._refresh_page_scrollregion)
+
+    def _refresh_page_scrollregion(self):
+        try:
+            self.page_content.update_idletasks()
+            # Re-apply the fixed viewport after Tk has completed the initial
+            # layout, then calculate the outer page scroll region once.
+            self.update_product_table_height()
+            self.page_content.update_idletasks()
+            self.page_canvas.configure(scrollregion=self.page_canvas.bbox("all"))
+        except Exception:
+            pass
 
     def _page_mousewheel(self, event):
         """Scroll the complete quotation page when the pointer is over it."""
@@ -505,7 +523,7 @@ class App:
             return
         # 16 standard rows fit in the quotation-items area. Extra rows use the
         # table's internal scrollbar. This height is deliberately constant.
-        table_height = 460
+        table_height = 500
         try:
             self.table_body.configure(height=table_height)
             self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
