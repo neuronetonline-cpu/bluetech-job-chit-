@@ -214,7 +214,7 @@ class App:
         self.build()
         # Recalculate the quotation-items height whenever the main window is resized.
         self.root.bind("<Configure>", self._on_root_resize, add="+")
-        self.root.after(150, self.update_product_table_height)
+        self.root.after(250, self.update_product_table_height)
 
     def build(self):
         # Polished Bluetech desktop UI. The quotation item list has its own
@@ -450,13 +450,18 @@ class App:
         self.recalc()
 
     def _on_root_resize(self, event=None):
-        if getattr(self, "_resize_pending", False):
-            return
-        self._resize_pending = True
-        self.root.after_idle(self._apply_root_resize)
+        # Debounce resize events. Do not call update_idletasks() from the
+        # resize callback because changing the table height can itself
+        # generate another Configure event and cause an endless event loop.
+        if getattr(self, "_resize_after", None):
+            try:
+                self.root.after_cancel(self._resize_after)
+            except Exception:
+                pass
+        self._resize_after = self.root.after(120, self._apply_root_resize)
 
     def _apply_root_resize(self):
-        self._resize_pending = False
+        self._resize_after = None
         try:
             self.update_product_table_height()
         except Exception:
@@ -519,14 +524,12 @@ class App:
             return
 
         try:
-            self.root.update_idletasks()
             win_h = self.root.winfo_height()
         except Exception:
             win_h = 800
 
         # Measure the real content height instead of assuming a fixed row size.
         try:
-            self.table.update_idletasks()
             content_bbox = self.table.bbox("all")
             content_height = (content_bbox[3] - content_bbox[1]) if content_bbox else 0
         except Exception:
@@ -559,8 +562,9 @@ class App:
             extra_cap = max(table_height, 520)
             table_height = min(content_height or standard_height, extra_cap)
 
+        # Only change the table body's height here. Avoid forcing an immediate
+        # geometry recalculation during a Configure event.
         self.table_body.configure(height=int(table_height))
-        self.table_body.update_idletasks()
         self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
 
         content_bbox = self.table_canvas.bbox("all")
