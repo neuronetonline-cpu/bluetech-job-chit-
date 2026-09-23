@@ -187,18 +187,18 @@ def open_job_chit(app, db, get_pdf_dir, job_id=None):
         )
         title_style = ParagraphStyle(
             'job_bw_title', parent=styles['Title'], fontName='Helvetica-Bold',
-            fontSize=15, leading=16, alignment=1, textColor=colors.black,
+            fontSize=13, leading=14, alignment=1, textColor=colors.black,
             spaceAfter=2
         )
         subtitle = ParagraphStyle(
-            'job_bw_sub', parent=body, fontSize=7.5, leading=8.5,
+            'job_bw_sub', parent=body, fontSize=7, leading=7.5,
             alignment=1, textColor=colors.black
         )
 
         doc = SimpleDocTemplate(
             path, pagesize=page,
             leftMargin=8*mm, rightMargin=8*mm,
-            topMargin=7*mm, bottomMargin=7*mm
+            topMargin=5*mm, bottomMargin=5*mm
         )
 
         def P(text, bold=False, size=None):
@@ -246,7 +246,7 @@ def open_job_chit(app, db, get_pdf_dir, job_id=None):
         pdata = [[P('#', True), P('PRODUCT', True), P('DESCRIPTION', True), P('QTY', True)]]
         for i, (prod, desc, qty) in enumerate(current_items(), 1):
             pdata.append([P(f'{i:02d}'), P(prod), P(desc or '-'), P(qty)])
-        story.append(bw_table(pdata, [10*mm, 58*mm, 168*mm, 22*mm], True, padd=2.1))
+        story.append(bw_table(pdata, [10*mm, 58*mm, 168*mm, 22*mm], True, padd=1.6))
 
         story.append(Paragraph('STAFF / RESPONSIBILITY', section))
         sdata = [[P('STAGE', True), P('STAFF', True), P('DATE / TIME', True), P('MANUAL CHECK', True)]]
@@ -254,7 +254,7 @@ def open_job_chit(app, db, get_pdf_dir, job_id=None):
             # Small empty square is intentionally printed for manual marking.
             sdata.append([P(stage), P(staff_vars[stage].get() or '-'),
                           P(time_vars[stage].get() or '-'), P('□')])
-        story.append(bw_table(sdata, [65*mm, 75*mm, 70*mm, 48*mm], True, padd=2.5))
+        story.append(bw_table(sdata, [65*mm, 75*mm, 70*mm, 48*mm], True, padd=1.7))
 
         story.append(Paragraph('BUILD / FINAL CHECKLIST', section))
         # Three columns with a small empty square for manual ticking.
@@ -266,17 +266,16 @@ def open_job_chit(app, db, get_pdf_dir, job_id=None):
             while len(row) < 3:
                 row.append(P(''))
             cdata.append(row)
-        story.append(bw_table(cdata, [86*mm, 86*mm, 86*mm], False, padd=3.0))
+        story.append(bw_table(cdata, [86*mm, 86*mm, 86*mm], False, padd=1.7))
 
         story.append(Paragraph('WORKSHOP REMARKS / SERIAL NUMBERS', section))
         remarks_text = remarks.get('1.0', 'end-1c').strip() or ' '
         # Give the remarks area a useful printable writing space.
-        story.append(bw_table([[P(remarks_text)]], [258*mm], False, padd=4))
-        story.append(Spacer(1, 4))
+        story.append(bw_table([[P(remarks_text)]], [258*mm], False, padd=2))
+        story.append(Spacer(1, 2))
         story.append(bw_table([
-            [P('WORKSHOP SIGNATURE', True), P(''), P('FINAL APPROVAL', True), P('')],
-            [P('MANUAL NOTES / ADDITIONAL CHECK', True), P(''), P('DATE', True), P('')]
-        ], [38*mm, 93*mm, 32*mm, 95*mm], False, padd=4))
+            [P('WORKSHOP SIGNATURE', True), P(''), P('FINAL APPROVAL', True), P(''), P('DATE', True), P('')]
+        ], [38*mm, 78*mm, 32*mm, 78*mm, 18*mm, 14*mm], False, padd=3))
 
         try:
             doc.build(story)
