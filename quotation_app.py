@@ -501,17 +501,23 @@ class App:
         if not hasattr(self, "table_body") or not hasattr(self, "rows"):
             return
 
-        row_height = 28
-        desired_height = (len(self.rows) * row_height) + 4
+        # One compact row is approximately 31px high with the current Entry
+        # padding/borders.  Keep all standard 16 products visible in a normal
+        # maximized desktop window.  The main page scrollbar can then handle
+        # the lower calculation/action area when necessary.
+        row_height = 31
+        desired_height = (len(self.rows) * row_height) + 6
 
-        # Keep enough room for the calculation/action sections while adapting
-        # to the actual screen size.
         try:
             screen_height = self.root.winfo_screenheight()
         except Exception:
             screen_height = 900
 
-        max_height = max(330, min(520, screen_height - 300))
+        # 16 standard rows need about 502px.  Allow that height even on a
+        # 768px-tall display; the outer quotation scrollbar will handle the
+        # rest of the page.  Extra rows are still limited and use the inner
+        # product scrollbar.
+        max_height = max(502, min(560, screen_height - 250))
         table_height = min(desired_height, max_height)
 
         self.table_body.configure(height=table_height)
