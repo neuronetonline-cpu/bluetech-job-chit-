@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, KeepTogether, KeepInFrame
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 CHECKS = ["Motherboard / CPU / cooler installed", "RAM / SSD / HDD installed", "PSU / GPU / cabling checked", "BIOS / boot verified", "Windows / drivers installed", "USB / audio / network tested", "Display / peripherals tested", "Temperature / stress test", "Final cleaning / accessories checked"]
@@ -99,9 +99,14 @@ def open_job_chit(app, db, get_pdf_dir, job_id=None):
     parts = ttk.LabelFrame(body, text='BUILD COMPONENTS (FROM QUOTATION)', padding=10); parts.pack(fill='x', pady=7)
     for col, title in enumerate(['PRODUCT', 'DESCRIPTION', 'QTY']):
         ttk.Label(parts, text=title, font=('Segoe UI',9,'bold')).grid(row=0,column=col,sticky='w',padx=5)
+
+    # Product descriptions are editable here before the Job Chit is saved/printed.
+    description_vars = []
     for i, (p,d,q) in enumerate(items, 1):
-        ttk.Label(parts, text=str(p)).grid(row=i,column=0,sticky='w',padx=5,pady=3)
-        ttk.Label(parts, text=str(d or '-'), wraplength=470).grid(row=i,column=1,sticky='w',padx=5)
+        ttk.Label(parts, text=str(p), font=('Segoe UI',9,'bold')).grid(row=i,column=0,sticky='w',padx=5,pady=3)
+        desc_var = tk.StringVar(value=str(d or ''))
+        description_vars.append(desc_var)
+        ttk.Entry(parts, textvariable=desc_var, width=65).grid(row=i,column=1,sticky='ew',padx=5,pady=2)
         ttk.Label(parts, text=str(q)).grid(row=i,column=2,sticky='w',padx=5)
     parts.columnconfigure(1, weight=1)
 
@@ -129,6 +134,10 @@ def open_job_chit(app, db, get_pdf_dir, job_id=None):
     remarks = tk.Text(notes_frame, height=5, wrap='word'); remarks.insert('1.0',notes or ''); remarks.pack(fill='x')
 
     def payload():
+        # Read the edited descriptions from the Job Chit window before saving.
+        for idx, desc_var in enumerate(description_vars):
+            if idx < len(items):
+                items[idx][1] = desc_var.get().strip()
         return (due_var.get().strip(), status_var.get(), json.dumps(items,ensure_ascii=False),
                 json.dumps({k:v.get() for k,v in check_vars.items()}),
                 json.dumps({k:v.get().strip() for k,v in staff_vars.items()}),
@@ -160,33 +169,77 @@ def open_job_chit(app, db, get_pdf_dir, job_id=None):
         folder = os.path.join(get_pdf_dir(), 'Job Chits'); os.makedirs(folder,exist_ok=True)
         path = os.path.join(folder,number+'.pdf')
         styles = getSampleStyleSheet()
-        small = ParagraphStyle('jobsmall', parent=styles['Normal'], fontSize=8.5, leading=12)
-        title = ParagraphStyle('jobtitle',parent=styles['Title'],fontSize=17,textColor=colors.HexColor('#075EAA'))
-        doc = SimpleDocTemplate(path,pagesize=A4,leftMargin=14*mm,rightMargin=14*mm,topMargin=12*mm,bottomMargin=12*mm)
-        story = [Paragraph('BLUETECH COMPUTERS',title),Paragraph('PC BUILD JOB CHIT  |  INTERNAL WORKSHOP COPY',small),Spacer(1,9)]
-        def para(s): return Paragraph(escape(str(s or '-')).replace('\n','<br/>'),small)
-        info_data = [[para('JOB NO: '+number),para('QUOTATION: '+str(qno))],
-                     [para('CUSTOMER: '+str(customer)),para('PHONE: '+str(phone))],
-                     [para('CREATED: '+str(created)),para('DUE: '+str(due_var.get() or '-'))],
-                     [para('STATUS: '+status_var.get()),para('')]]
-        def table(data,widths,header=False):
-            t=Table(data,colWidths=widths,repeatRows=1 if header else 0,hAlign='LEFT')
-            commands=[('VALIGN',(0,0),(-1,-1),'TOP'),('GRID',(0,0),(-1,-1),.4,colors.HexColor('#B8C7D9')),
-                      ('LEFTPADDING',(0,0),(-1,-1),6),('RIGHTPADDING',(0,0),(-1,-1),6),('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5)]
-            if header: commands += [('BACKGROUND',(0,0),(-1,0),colors.HexColor('#DCEEFF'))]
+        small = ParagraphStyle('jobsmall', parent=styles['Normal'], fontSize=7.2, leading=8.7, spaceAfter=0)
+        tiny = ParagraphStyle('jobtiny', parent=small, fontSize=6.8, leading=8.0)
+        title = ParagraphStyle('jobtitle',parent=styles['Title'],fontSize=15,leading=17,textColor=colors.HexColor('#075EAA'),spaceAfter=0)
+        section = ParagraphStyle('jobsection',parent=small,fontSize=7.4,leading=9,fontName='Helvetica-Bold',textColor=colors.HexColor('#075EAA'),spaceAfter=2)
+
+        doc = SimpleDocTemplate(
+            path, pagesize=A4,
+            leftMargin=9*mm, rightMargin=9*mm, topMargin=7*mm, bottomMargin=7*mm
+        )
+
+        def para(s, style=small):
+            return Paragraph(escape(str(s or '-')).replace('\n','<br/>'), style)
+
+        def table(data, widths, header=False, font_size=7.2, pad=2.5):
+            t = Table(data, colWidths=widths, hAlign='LEFT', repeatRows=1 if header else 0)
+            commands = [
+                ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                ('GRID',(0,0),(-1,-1),.35,colors.HexColor('#B8C7D9')),
+                ('LEFTPADDING',(0,0),(-1,-1),pad),
+                ('RIGHTPADDING',(0,0),(-1,-1),pad),
+                ('TOPPADDING',(0,0),(-1,-1),pad),
+                ('BOTTOMPADDING',(0,0),(-1,-1),pad),
+            ]
+            if header:
+                commands += [('BACKGROUND',(0,0),(-1,0),colors.HexColor('#DCEEFF'))]
             t.setStyle(TableStyle(commands)); return t
-        story += [table(info_data,[91*mm,91*mm]),Spacer(1,10),Paragraph('<b>BUILD COMPONENTS</b>',small)]
-        pdata=[[para('PRODUCT'),para('DESCRIPTION'),para('QTY')]]
-        for p,d,q in items: pdata.append([para(p),para(d),para(q)])
-        story += [table(pdata,[49*mm,113*mm,20*mm]),Spacer(1,10),Paragraph('<b>STAFF TRACKING</b>',small)]
-        sdata=[[para('STAGE'),para('STAFF'),para('DATE / TIME')]]
-        for stage in STAGES: sdata.append([para(stage),para(staff_vars[stage].get()),para(time_vars[stage].get())])
-        story += [table(sdata,[56*mm,55*mm,71*mm]),Spacer(1,10),Paragraph('<b>BUILD / FINAL CHECKLIST</b>',small)]
-        cdata = [[para(('DONE' if check_vars[item].get() else 'PENDING')+'  -  '+item)] for item in CHECKS]
-        story += [table(cdata,[182*mm]),Spacer(1,9),Paragraph('<b>REMARKS / SERIAL NUMBERS</b>',small),para(remarks.get('1.0','end-1c')),Spacer(1,15),
-                  para('Workshop signature: _______________________     Final approval: _______________________')]
-        try: doc.build(story)
-        except Exception as e: messagebox.showerror('PDF',str(e),parent=win); return None
+
+        story = [
+            Paragraph('BLUETECH COMPUTERS', title),
+            Paragraph('PC BUILD JOB CHIT  |  INTERNAL WORKSHOP COPY', tiny),
+            Spacer(1,3),
+        ]
+
+        info_data = [
+            [para('<b>JOB NO:</b> '+number), para('<b>QUOTATION:</b> '+str(qno)), para('<b>STATUS:</b> '+status_var.get())],
+            [para('<b>CUSTOMER:</b> '+str(customer)), para('<b>PHONE:</b> '+str(phone)), para('<b>CREATED:</b> '+str(created))],
+            [para('<b>DUE:</b> '+str(due_var.get() or '-')), para('<b>PREPARED BY:</b> '+str(staff_vars.get('Prepared By',tk.StringVar()).get())), para('')],
+        ]
+        story += [table(info_data,[64*mm,64*mm,54*mm]), Spacer(1,3), Paragraph('BUILD COMPONENTS',section)]
+
+        pdata = [[para('<b>PRODUCT</b>'), para('<b>DESCRIPTION</b>'), para('<b>QTY</b>')]]
+        for p,d,q in items:
+            pdata.append([para(p), para(d or '-'), para(q)])
+        story += [table(pdata,[48*mm,115*mm,19*mm],header=True,pad=2), Spacer(1,3), Paragraph('STAFF / RESPONSIBILITY',section)]
+
+        sdata = [[para('<b>STAGE</b>'),para('<b>STAFF</b>'),para('<b>DATE / TIME</b>')]]
+        for stage in STAGES:
+            sdata.append([para(stage),para(staff_vars[stage].get()),para(time_vars[stage].get())])
+        story += [table(sdata,[58*mm,62*mm,62*mm],header=True,pad=2), Spacer(1,3), Paragraph('BUILD / FINAL CHECKLIST',section)]
+
+        # Compact 3-column checklist keeps the whole Job Chit on one A4 page.
+        cdata = []
+        for start_idx in range(0, len(CHECKS), 3):
+            row = []
+            for item in CHECKS[start_idx:start_idx+3]:
+                mark = '✓' if check_vars[item].get() else '☐'
+                row.append(para(mark+' '+item, tiny))
+            while len(row) < 3:
+                row.append(para('', tiny))
+            cdata.append(row)
+        story += [table(cdata,[60*mm,60*mm,62*mm],pad=2), Spacer(1,3), Paragraph('REMARKS / SERIAL NUMBERS',section),
+                  table([[para(remarks.get('1.0','end-1c') or '-')],[para('Workshop signature: ____________________    Final approval: ____________________',tiny)]],[182*mm],pad=2)]
+
+        # Shrink the compact layout only if unusually long descriptions/remarks would
+        # otherwise push the document onto a second page.
+        available_h = A4[1] - (16*mm)
+        story = [KeepInFrame(A4[0] - 18*mm, available_h, story, mode='shrink')]
+        try:
+            doc.build(story)
+        except Exception as e:
+            messagebox.showerror('PDF',str(e),parent=win); return None
         return path
 
     def pdf_click():
