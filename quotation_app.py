@@ -455,18 +455,12 @@ class App:
         self.recalc()
 
     def _on_root_resize(self, event=None):
-        # Tk can emit Configure events when child widgets change size.
-        # Only schedule a table resize when the actual top-level window
-        # dimensions changed. This prevents the table resize from feeding
-        # back into another resize indefinitely.
-        if event is None:
-            try:
-                size = (self.root.winfo_width(), self.root.winfo_height())
-            except Exception:
-                return
-        else:
-            size = (int(getattr(event, "width", 0)), int(getattr(event, "height", 0)))
-
+        # This binding is on the top-level window only. Re-run the table sizing
+        # after a real window resize, but never resize the canvas content itself.
+        try:
+            size = (self.root.winfo_width(), self.root.winfo_height())
+        except Exception:
+            return
         if size[0] <= 1 or size[1] <= 1:
             return
         if size == getattr(self, "_last_root_size", None):
@@ -532,13 +526,12 @@ class App:
             pass
 
     def update_product_table_height(self):
-        """Responsive quotation-items height.
+        """Set the quotation-items viewport height without changing canvas content height.
 
-        Maximized/full-screen desktop: show the complete standard product list
-        (16 rows) without the inner scrollbar. When the window is reduced,
-        shrink the table to the available height and use the inner scrollbar.
-        The outer quotation-page scrollbar remains available for the lower
-        calculation/action sections.
+        16 default rows are shown on a large/maximized window. On a smaller
+        window the viewport becomes shorter and the product-table scrollbar
+        handles the remaining rows. This intentionally avoids changing the
+        canvas window height, which can create a geometry/Configure feedback loop.
         """
         if not hasattr(self, "table_body") or not hasattr(self, "rows"):
             return
@@ -548,73 +541,54 @@ class App:
         except Exception:
             win_h = 800
 
-        # Measure the real content height instead of assuming a fixed row size.
+        # Approximate row height from the actual entry widgets.
         try:
-            content_bbox = self.table.bbox("all")
-            content_height = (content_bbox[3] - content_bbox[1]) if content_bbox else 0
+            heights = [max(w.winfo_reqheight() for w in row[4])
+                       for row in self.rows[:16] if row[4]]
+            row_h = max(heights) if heights else 28
         except Exception:
-            content_height = len(self.rows) * 28
+            row_h = 28
 
-        # Standard 16-row list should be fully visible on a maximized desktop.
-        # 16 rows normally need roughly 450-500 px.
-        standard_rows = 16
-        try:
-            row_heights = []
-            for row in self.rows[:standard_rows]:
-                if row[4]:
-                    row_heights.append(max(w.winfo_reqheight() for w in row[4]))
-            row_height = max(row_heights) if row_heights else 28
-        except Exception:
-            row_height = 28
-        standard_height = (row_height * min(standard_rows, len(self.rows))) + 8
+        standard_height = max(400, row_h * min(16, max(1, len(self.rows))) + 8)
 
         if win_h >= 760:
-            # Full/maximized desktop: prioritize showing all standard products.
-            table_height = max(standard_height, 450)
+            target = standard_height
         else:
-            # Small window: reserve space for customer/header and keep the
-            # calculation/actions reachable through the outer page scrollbar.
-            available = win_h - 420
-            table_height = max(220, min(standard_height, available))
+            # Keep customer/header and calculation/actions usable on small windows.
+            target = max(220, min(standard_height, win_h - 430))
 
-        # If extra rows are added, cap the inner table so it gets a scrollbar.
-        if len(self.rows) > standard_rows:
-            extra_cap = max(table_height, 520)
-            table_height = min(content_height or standard_height, extra_cap)
+        # If additional rows are added, keep a reasonable viewport and use the
+        # inner scrollbar instead of expanding the whole quotation page.
+        if len(self.rows) > 16:
+            target = min(target, 500)
 
-        # Only change the table body's height here. Avoid forcing an immediate
-        # geometry recalculation during a Configure event.
-        new_height = int(table_height)
         try:
-            current_height = int(self.table_body.winfo_height())
+            current = int(self.table_body.winfo_height())
         except Exception:
-            current_height = -1
-        # Do not repeatedly reconfigure the same geometry. This prevents the
-        # root Configure event from feeding back into itself.
-        if current_height != new_height:
-            self.table_body.configure(height=new_height)
+            current = -1
 
-        # Make the inner table window at least as tall as the real product
-        # content so the canvas does not show a large empty area below rows.
+        if current != int(target):
+            self.table_body.configure(height=int(target))
+
+        # Only update the scrollregion. Never set the canvas window height here.
         try:
-            content_bbox = self.table.bbox("all")
-            content_height = int(content_bbox[3] - content_bbox[1]) if content_bbox else 0
-            window_height = max(new_height, content_height)
-            self.table_canvas.itemconfigure(self.table_window, height=window_height)
+            self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
         except Exception:
             pass
 
-        self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
-
-        content_bbox = self.table_canvas.bbox("all")
-        actual_content = (content_bbox[3] - content_bbox[1]) if content_bbox else 0
-        if actual_content > table_height + 2:
-            if not self.table_scroll.winfo_ismapped():
-                self.table_scroll.pack(side="right", fill="y")
-        else:
-            if self.table_scroll.winfo_ismapped():
-                self.table_scroll.pack_forget()
-            self.table_canvas.yview_moveto(0)
+        # Show the inner scrollbar only when content is taller than the viewport.
+        try:
+            bbox = self.table_canvas.bbox("all")
+            content_h = (bbox[3] - bbox[1]) if bbox else 0
+            if content_h > int(target) + 2:
+                if not self.table_scroll.winfo_ismapped():
+                    self.table_scroll.pack(side="right", fill="y")
+            else:
+                if self.table_scroll.winfo_ismapped():
+                    self.table_scroll.pack_forget()
+                self.table_canvas.yview_moveto(0)
+        except Exception:
+            pass
 
     def add_row(self, product="", silent=False):
         r = len(self.rows)
