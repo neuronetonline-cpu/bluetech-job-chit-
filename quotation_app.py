@@ -491,44 +491,31 @@ class App:
             pass
 
     def update_product_table_height(self):
-        """Auto-size the quotation item area for the standard product list.
-
-        The normal 16-row product list is shown without an inner scrollbar on
-        a normal full-screen desktop window. If additional rows are added, or
-        the screen is smaller, the table is capped and its own scrollbar is
-        used.
-        """
+        """Keep the product list responsive while preserving the rest of the page."""
         if not hasattr(self, "table_body") or not hasattr(self, "rows"):
             return
-
-        # One compact row is approximately 31px high with the current Entry
-        # padding/borders.  Keep all standard 16 products visible in a normal
-        # maximized desktop window.  The main page scrollbar can then handle
-        # the lower calculation/action area when necessary.
-        row_height = 31
-        desired_height = (len(self.rows) * row_height) + 6
-
+        self.root.update_idletasks()
+        n = len(self.rows)
+        row_h = 28
+        content_h = max(1, n * row_h + 4)
+        # Measure the space actually available between the table and the
+        # calculation/actions area instead of using a fixed screen-height rule.
         try:
-            screen_height = self.root.winfo_screenheight()
+            top_y = self.table_canvas.winfo_rooty()
+            bottom_y = self.root.winfo_rooty() + self.root.winfo_height() - 145
+            available = max(250, bottom_y - top_y)
         except Exception:
-            screen_height = 900
-
-        # 16 standard rows need about 502px.  Allow that height even on a
-        # 768px-tall display; the outer quotation scrollbar will handle the
-        # rest of the page.  Extra rows are still limited and use the inner
-        # product scrollbar.
-        max_height = max(502, min(560, screen_height - 250))
-        table_height = min(desired_height, max_height)
-
-        self.table_body.configure(height=table_height)
+            available = 430
+        if n <= 16:
+            table_h = min(content_h, available)
+        else:
+            table_h = min(content_h, available)
+        self.table_body.configure(height=table_h)
         self.table_body.update_idletasks()
         self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
-
-        # Hide the internal scrollbar when all rows fit; show it only when
-        # the table content is taller than the available table area.
-        content_bbox = self.table_canvas.bbox("all")
-        content_height = (content_bbox[3] - content_bbox[1]) if content_bbox else 0
-        if content_height > table_height + 2:
+        bbox = self.table_canvas.bbox("all")
+        actual = (bbox[3] - bbox[1]) if bbox else 0
+        if actual > table_h + 2:
             if not self.table_scroll.winfo_ismapped():
                 self.table_scroll.pack(side="right", fill="y")
         else:
