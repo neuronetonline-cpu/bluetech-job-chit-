@@ -212,6 +212,9 @@ class App:
         self.editing_id = None
         setup_db(db)
         self.build()
+        # Recalculate the quotation-items height whenever the main window is resized.
+        self.root.bind("<Configure>", self._on_root_resize, add="+")
+        self.root.after(150, self.update_product_table_height)
 
     def build(self):
         # Polished Bluetech desktop UI. The quotation item list has its own
@@ -446,6 +449,19 @@ class App:
 
         self.recalc()
 
+    def _on_root_resize(self, event=None):
+        if getattr(self, "_resize_pending", False):
+            return
+        self._resize_pending = True
+        self.root.after_idle(self._apply_root_resize)
+
+    def _apply_root_resize(self):
+        self._resize_pending = False
+        try:
+            self.update_product_table_height()
+        except Exception:
+            pass
+
     def _page_mousewheel(self, event):
         """Scroll the complete quotation page when the pointer is over it."""
         try:
@@ -491,31 +507,65 @@ class App:
             pass
 
     def update_product_table_height(self):
-        """Keep the product list responsive while preserving the rest of the page."""
+        """Responsive quotation-items height.
+
+        Maximized/full-screen desktop: show the complete standard product list
+        (16 rows) without the inner scrollbar. When the window is reduced,
+        shrink the table to the available height and use the inner scrollbar.
+        The outer quotation-page scrollbar remains available for the lower
+        calculation/action sections.
+        """
         if not hasattr(self, "table_body") or not hasattr(self, "rows"):
             return
-        self.root.update_idletasks()
-        n = len(self.rows)
-        row_h = 28
-        content_h = max(1, n * row_h + 4)
-        # Measure the space actually available between the table and the
-        # calculation/actions area instead of using a fixed screen-height rule.
+
         try:
-            top_y = self.table_canvas.winfo_rooty()
-            bottom_y = self.root.winfo_rooty() + self.root.winfo_height() - 145
-            available = max(250, bottom_y - top_y)
+            self.root.update_idletasks()
+            win_h = self.root.winfo_height()
         except Exception:
-            available = 430
-        if n <= 16:
-            table_h = min(content_h, available)
+            win_h = 800
+
+        # Measure the real content height instead of assuming a fixed row size.
+        try:
+            self.table.update_idletasks()
+            content_bbox = self.table.bbox("all")
+            content_height = (content_bbox[3] - content_bbox[1]) if content_bbox else 0
+        except Exception:
+            content_height = len(self.rows) * 28
+
+        # Standard 16-row list should be fully visible on a maximized desktop.
+        # 16 rows normally need roughly 450-500 px.
+        standard_rows = 16
+        try:
+            row_heights = []
+            for row in self.rows[:standard_rows]:
+                if row[4]:
+                    row_heights.append(max(w.winfo_reqheight() for w in row[4]))
+            row_height = max(row_heights) if row_heights else 28
+        except Exception:
+            row_height = 28
+        standard_height = (row_height * min(standard_rows, len(self.rows))) + 8
+
+        if win_h >= 760:
+            # Full/maximized desktop: prioritize showing all standard products.
+            table_height = max(standard_height, 450)
         else:
-            table_h = min(content_h, available)
-        self.table_body.configure(height=table_h)
+            # Small window: reserve space for customer/header and keep the
+            # calculation/actions reachable through the outer page scrollbar.
+            available = win_h - 420
+            table_height = max(220, min(standard_height, available))
+
+        # If extra rows are added, cap the inner table so it gets a scrollbar.
+        if len(self.rows) > standard_rows:
+            extra_cap = max(table_height, 520)
+            table_height = min(content_height or standard_height, extra_cap)
+
+        self.table_body.configure(height=int(table_height))
         self.table_body.update_idletasks()
         self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
-        bbox = self.table_canvas.bbox("all")
-        actual = (bbox[3] - bbox[1]) if bbox else 0
-        if actual > table_h + 2:
+
+        content_bbox = self.table_canvas.bbox("all")
+        actual_content = (content_bbox[3] - content_bbox[1]) if content_bbox else 0
+        if actual_content > table_height + 2:
             if not self.table_scroll.winfo_ismapped():
                 self.table_scroll.pack(side="right", fill="y")
         else:
