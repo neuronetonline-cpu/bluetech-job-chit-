@@ -531,64 +531,44 @@ class App:
             pass
 
     def update_product_table_height(self):
-        """Keep the standard 16 quotation rows visible on large windows.
-        On smaller windows, use the available height and the inner scrollbar.
-        Do not resize the canvas window to content height (prevents blank-area
-        feedback/resize loops).
+        """Set a stable product-table height.
+
+        The table scrollbar is kept permanently mapped. This is intentional:
+        hiding/showing the scrollbar changes the canvas width, which can change
+        row geometry and cause Tk Configure feedback loops.
         """
         if not hasattr(self, "table_body") or not hasattr(self, "rows"):
             return
+
         try:
-            win_h = self.root.winfo_height()
+            win_h = int(self.root.winfo_height())
         except Exception:
             win_h = 800
 
-        # Each row is about 28px including padding. The standard product list
-        # contains 16 rows, so reserve enough space for all 16 on large windows.
-        standard_rows = min(16, len(self.rows))
-        row_height = 28
-        try:
-            if self.rows and self.rows[0][4]:
-                row_height = max(24, max(w.winfo_reqheight() for w in self.rows[0][4]) + 4)
-        except Exception:
-            pass
-        standard_height = max(450, standard_rows * row_height + 8)
-
+        # Large/maximized window: show all standard 16 rows.
+        # Smaller window: reduce the visible table area and use the inner scrollbar.
         if win_h >= 760:
-            new_height = standard_height
+            new_height = 480
         else:
-            available = max(220, win_h - 420)
-            new_height = min(standard_height, available)
-
-        if len(self.rows) > 16:
-            new_height = min(new_height, max(450, standard_height))
+            new_height = max(220, min(480, win_h - 420))
 
         new_height = int(new_height)
         try:
-            current_height = int(self.table_body.winfo_height())
+            if int(self.table_body.winfo_height()) != new_height:
+                self.table_body.configure(height=new_height)
         except Exception:
-            current_height = -1
-
-        if current_height != new_height:
             self.table_body.configure(height=new_height)
 
-        # Keep the embedded frame width synced, but never force its height to
-        # the content height. This is the key to avoiding the resize loop.
+        # Keep the inner scrollbar ALWAYS visible. Never pack_forget/pack it
+        # dynamically because that changes canvas width and can restart layout.
         try:
-            self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
+            if not self.table_scroll.winfo_ismapped():
+                self.table_scroll.pack(side="right", fill="y")
         except Exception:
             pass
 
         try:
-            content_bbox = self.table.bbox("all")
-            content_height = (content_bbox[3] - content_bbox[1]) if content_bbox else 0
-            if content_height > new_height + 2:
-                if not self.table_scroll.winfo_ismapped():
-                    self.table_scroll.pack(side="right", fill="y")
-            else:
-                if self.table_scroll.winfo_ismapped():
-                    self.table_scroll.pack_forget()
-                self.table_canvas.yview_moveto(0)
+            self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
         except Exception:
             pass
 
