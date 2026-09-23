@@ -212,13 +212,9 @@ class App:
         self.editing_id = None
         setup_db(db)
         self.build()
-        # Resize tracking: only react when the actual root window dimensions change.
-        # Changes made inside the product table can also generate Configure events;
-        # those are ignored when the root size has not changed, preventing loops.
-        self._last_root_size = None
-        self._resize_after = None
-        self.root.bind("<Configure>", self._on_root_resize, add="+")
-        self.root.after(250, self.update_product_table_height)
+        # The quotation layout is intentionally stable. Do not bind the top-level
+        # <Configure> event to the product table; changing child geometry from a
+        # root Configure callback can create a Tk geometry feedback loop.
 
     def build(self):
         # Polished Bluetech desktop UI. The quotation item list has its own
@@ -453,39 +449,6 @@ class App:
 
         self.recalc()
 
-    def _on_root_resize(self, event=None):
-        # Tk can emit Configure events when child widgets change size.
-        # Only schedule a table resize when the actual top-level window
-        # dimensions changed. This prevents the table resize from feeding
-        # back into another resize indefinitely.
-        if event is None:
-            try:
-                size = (self.root.winfo_width(), self.root.winfo_height())
-            except Exception:
-                return
-        else:
-            size = (int(getattr(event, "width", 0)), int(getattr(event, "height", 0)))
-
-        if size[0] <= 1 or size[1] <= 1:
-            return
-        if size == getattr(self, "_last_root_size", None):
-            return
-        self._last_root_size = size
-
-        if getattr(self, "_resize_after", None):
-            try:
-                self.root.after_cancel(self._resize_after)
-            except Exception:
-                pass
-        self._resize_after = self.root.after(120, self._apply_root_resize)
-
-    def _apply_root_resize(self):
-        self._resize_after = None
-        try:
-            self.update_product_table_height()
-        except Exception:
-            pass
-
     def _page_mousewheel(self, event):
         """Scroll the complete quotation page when the pointer is over it."""
         try:
@@ -531,43 +494,20 @@ class App:
             pass
 
     def update_product_table_height(self):
-        """Set a stable product-table height.
+        """Keep the quotation-items viewport at a fixed height.
 
-        The table scrollbar is kept permanently mapped. This is intentional:
-        hiding/showing the scrollbar changes the canvas width, which can change
-        row geometry and cause Tk Configure feedback loops.
+        The product table itself has its own scrollbar. The complete quotation
+        page uses the outer scrollbar for the calculation and action sections.
+        No window-size calculation is performed here, so this method cannot
+        participate in a geometry feedback loop.
         """
-        if not hasattr(self, "table_body") or not hasattr(self, "rows"):
+        if not hasattr(self, "table_body"):
             return
-
+        # 16 standard rows fit in the quotation-items area. Extra rows use the
+        # table's internal scrollbar. This height is deliberately constant.
+        table_height = 460
         try:
-            win_h = int(self.root.winfo_height())
-        except Exception:
-            win_h = 800
-
-        # Large/maximized window: show all standard 16 rows.
-        # Smaller window: reduce the visible table area and use the inner scrollbar.
-        if win_h >= 760:
-            new_height = 480
-        else:
-            new_height = max(220, min(480, win_h - 420))
-
-        new_height = int(new_height)
-        try:
-            if int(self.table_body.winfo_height()) != new_height:
-                self.table_body.configure(height=new_height)
-        except Exception:
-            self.table_body.configure(height=new_height)
-
-        # Keep the inner scrollbar ALWAYS visible. Never pack_forget/pack it
-        # dynamically because that changes canvas width and can restart layout.
-        try:
-            if not self.table_scroll.winfo_ismapped():
-                self.table_scroll.pack(side="right", fill="y")
-        except Exception:
-            pass
-
-        try:
+            self.table_body.configure(height=table_height)
             self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
         except Exception:
             pass
@@ -617,7 +557,6 @@ class App:
         if hasattr(self, "table_canvas"):
             self.table_canvas.update_idletasks()
             self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
-            self.update_product_table_height()
         if not silent:
             self.recalc()
 
@@ -658,7 +597,6 @@ class App:
         if hasattr(self, "table_canvas"):
             self.table_canvas.update_idletasks()
             self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all"))
-            self.update_product_table_height()
         self.recalc()
 
     def num(self, x):
